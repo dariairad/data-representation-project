@@ -95,7 +95,8 @@ document.getElementById('load-more').addEventListener('click', function(e) {
 function addRecommendation(movieId) {
     let jwtToken = getJwtToken(); 
     if (!jwtToken) {
-        alert("You are not logged in.");
+        alert("You must be logged in to add a recommendation.");
+        window.location.href = '/auth'; // Redirect to login/signup page
         return; 
     }
 
@@ -150,8 +151,6 @@ function loadRecommendedMovies() {
             alert("Failed to load recommended movies.");
         });
 }
-
-
 
 // Initialize the recommended movies list on page load
 loadRecommendedMovies();
