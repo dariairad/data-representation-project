@@ -1,5 +1,3 @@
-
-// Update the login function to store the JWT token securely
 function login() {
     const username = document.getElementById('username').value;
     const password = document.getElementById('password').value;
@@ -64,7 +62,6 @@ function loadMovies(query, page) {
                 movieElement.innerHTML = `
                     <p></p>
                     <h3>${movie.title} (${movie.year})</h3>
-                    <p>Directed by ${movie.description}</p>
                     <p>${movie.description}</p>
                     <p>ID: ${movie.movie_id}</p>
                     <button onclick="addRecommendation(${movie.movie_id})">Add Recommendation</button>
@@ -123,13 +120,14 @@ function addRecommendation(movieId) {
         alert("An error occurred while adding the recommendation.");
     });
 }
-
 // Function to load recommended movies
 function loadRecommendedMovies() {
     fetch('/recommended_movies')
         .then(response => response.json())
         .then(movies => {
             const container = document.getElementById('recommended-movies');
+            container.classList.add('movies-container'); 
+
             container.innerHTML = '';
             if (movies.length === 0) {
                 container.innerHTML = '<p>No recommendations found.</p>';
@@ -140,7 +138,9 @@ function loadRecommendedMovies() {
                 movieElement.innerHTML = `
                     <h4>${movie.title}</h4>
                     <p>Recommendations: ${movie.recommendation_count}</p>
+                    <p>Description: ${movie.description}</p> <!-- Added description -->
                     <button onclick="addRecommendation(${movie.movie_id})">Recommend</button>
+                    <p></p>
                 `;
                 container.appendChild(movieElement);
             });
@@ -150,6 +150,8 @@ function loadRecommendedMovies() {
             alert("Failed to load recommended movies.");
         });
 }
+
+
 
 // Initialize the recommended movies list on page load
 loadRecommendedMovies();

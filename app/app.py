@@ -203,8 +203,8 @@ def add_recommendation():
                 # Fetch and insert movie details if the movie doesn't exist
                 movie_details = get_movie_details(movie_id)
                 if movie_details:
-                    cursor.execute("INSERT INTO Movies (movie_id, title, release_date, overview, recommendation_count) VALUES (%s, %s, %s, %s, 1)",
-                                   (movie_id, movie_details['title'], movie_details['release_date'], movie_details['overview']))
+                    cursor.execute("INSERT INTO Movies (movie_id, title, release_date, description, recommendation_count) VALUES (%s, %s, %s, %s, 1)",
+                                   (movie_id, movie_details['title'], movie_details['release_date'], movie_details['description']))
                 else:
                     return jsonify({"message": "Failed to fetch movie details"}), 400
             else:
@@ -223,18 +223,19 @@ def add_recommendation():
             cursor.close()
 
 
-
-
 @app.route('/recommended_movies')
 def recommended_movies():
     with get_db_connection() as db:
         cursor = db.cursor()
-        query = "SELECT movie_id, title, recommendation_count FROM Movies ORDER BY recommendation_count DESC"
+        query = """
+        SELECT movie_id, title, recommendation_count, description
+        FROM Movies
+        ORDER BY recommendation_count DESC
+        """
         cursor.execute(query)
-        movies = [{"movie_id": row[0], "title": row[1], "recommendation_count": row[2]} for row in cursor.fetchall()]
+        movies = [{"movie_id": row[0], "title": row[1], "recommendation_count": row[2], "description": row[3]} for row in cursor.fetchall()]
         cursor.close()
     return jsonify(movies)
-
 
 # Index route
 @app.route('/')
