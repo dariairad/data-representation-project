@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, jsonify, request, make_response, render_template, redirect, url_for
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 import mysql.connector
@@ -36,7 +36,7 @@ def get_db_connection():
         connection.close()
 
 # Function to search movies from TMDB API
-def search_movies(query):
+def search_movies(query, page=1):
     search_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={query}"
     response = requests.get(search_url)
 
@@ -57,33 +57,32 @@ class User(object):
 
     @staticmethod
     def find_by_username(username):
-        db = get_db_connection()
-        cursor = db.cursor()
-        query = "SELECT user_id, username, password_hash FROM Users WHERE username = %s"
-        cursor.execute(query, (username,))
-        row = cursor.fetchone()
-        if row:
-            user = User(*row)
-        else:
-            user = None
-        cursor.close()
-        db.close()
+        with get_db_connection() as db:
+            cursor = db.cursor()
+            query = "SELECT user_id, username, password_hash FROM Users WHERE username = %s"
+            cursor.execute(query, (username,))
+            row = cursor.fetchone()
+            if row:
+                user = User(*row)
+            else:
+                user = None
+            cursor.close()
         return user
-
+    
     @staticmethod
     def find_by_id(user_id):
-        db = get_db_connection()
-        cursor = db.cursor()
-        query = "SELECT user_id, username, password_hash FROM Users WHERE user_id = %s"
-        cursor.execute(query, (user_id,))
-        row = cursor.fetchone()
-        if row:
-            user = User(*row)
-        else:
-            user = None
-        cursor.close()
-        db.close()
+        with get_db_connection() as db:
+            cursor = db.cursor()
+            query = "SELECT user_id, username, password_hash FROM Users WHERE user_id = %s"
+            cursor.execute(query, (user_id,))
+            row = cursor.fetchone()
+            if row:
+                user = User(*row)
+            else:
+                user = None
+            cursor.close()
         return user
+
 
 # Authentication handler
 def authenticate(username, password):
@@ -96,23 +95,41 @@ def identity(payload):
     user_id = payload['identity']
     return User.find_by_id(user_id)
 
+@app.route('/auth')
+def auth_page():
+    return render_template('auth.html')
+
 # User registration endpoint
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
-    username = data['username']
-    password = data['password']
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({'message': 'Username and password are required'}), 400
+
     hashed_password = generate_password_hash(password)
 
     with get_db_connection() as db:
         cursor = db.cursor()
-        cursor.execute("SELECT * FROM Users WHERE username = %s", (username,))
-        if cursor.fetchone():
-            return jsonify({"message": "Username already exists"}), 400
-        cursor.execute("INSERT INTO Users (username, password_hash) VALUES (%s, %s)", (username, hashed_password))
-        db.commit()
+        try:
+            # Check if user already exists
+            cursor.execute("SELECT * FROM Users WHERE username = %s", (username,))
+            if cursor.fetchone():
+                return jsonify({"message": "Username already exists"}), 400
 
-    return jsonify({"message": "User registered successfully."}), 201
+            # Insert new user
+            cursor.execute("INSERT INTO Users (username, password_hash) VALUES (%s, %s)", (username, hashed_password))
+            db.commit()
+        except Exception as e:
+            # Handle any exceptions that occur during database operations
+            return jsonify({'message': 'Registration failed', 'error': str(e)}), 500
+        finally:
+            cursor.close()
+
+    # Redirect to the auth page after successful registration
+    return redirect(url_for('auth_page'))
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -121,10 +138,13 @@ def login():
 
     user = User.find_by_username(username)
     if user and check_password_hash(user.password_hash, password):
-        access_token = create_access_token(identity=username)
+        access_token = create_access_token(identity=user.user_id)
+        # Return the access token to the client
         return jsonify(access_token=access_token), 200
+    else:
+        # Return an error message to the client
+        return jsonify({"msg": "Bad username or password"}), 401
 
-    return jsonify({"msg": "Bad username or password"}), 401
 
 # Protected route example
 @app.route('/protected', methods=['GET'])
@@ -137,47 +157,78 @@ def protected():
 @app.route('/search')
 def search():
     query = request.args.get('query')
+    page = request.args.get('page', 1, type=int)
     if query:
-        movies = search_movies(query)
-        return jsonify(movies) if movies else jsonify({"message": "No movies found"}), 404
-    return jsonify({"message": "Missing query parameter"}), 400
+        movies = search_movies(query, page)
+        return jsonify(movies)
+    return jsonify({"message": "No movies found"}), 404
+
+def get_movie_details(movie_id):
+    """Fetch movie details from TMDB API based on movie_id."""
+    base_url = "https://api.themoviedb.org/3/movie/"
+    api_key = TMDB_API_KEY  # Ensure you have defined TMDB_API_KEY in your configuration
+    url = f"{base_url}{movie_id}?api_key={api_key}"
+
+    response = requests.get(url)
+    if response.status_code == 200:
+        movie_data = response.json()
+        return {
+            'title': movie_data.get('title'),
+            'release_date': movie_data.get('release_date'),
+            'overview': movie_data.get('overview')
+            # Add other fields as required
+        }
+    else:
+        # Handle errors or return None if the API call fails
+        print(f"Failed to retrieve movie details: {response.status_code}")
+        return None
 
 @app.route('/add_recommendation', methods=['POST'])
 @jwt_required()
 def add_recommendation():
-    current_user_id = get_jwt_identity()
-    data = request.get_json()
-    movie_id = data.get('movie_id')
-    comment = data.get('comment', '')
+    user_id = get_jwt_identity()
+    movie_id = request.json.get('movie_id')
 
-    # Insert the recommendation into the Recommendations table
-    # Also, increment the recommendation_count in the Movies table
+    with get_db_connection() as db:
+        cursor = db.cursor()
+        try:
+            # Check if the movie exists
+            cursor.execute("SELECT movie_id FROM Movies WHERE id = %s", (movie_id,))
+            movie = cursor.fetchone()
+            
+            # If movie doesn't exist, insert movie details (You need to modify this part based on how you get movie details)
+            if not movie:
+                movie_details = get_movie_details(movie_id)
+                cursor.execute("INSERT INTO Movies (id, title, ...) VALUES (%s, %s, ...)", (movie_id, movie_details.title, ...))
 
-    # Continue from the previous code snippet
-    db = get_db_connection()
-    cursor = db.cursor()
-    try:
-        # Insert recommendation
-        insert_query = "INSERT INTO Recommendations (user_id, movie_id, comment) VALUES (%s, %s, %s)"
-        cursor.execute(insert_query, (current_user_id, movie_id, comment))
+            # Insert recommendation
+            cursor.execute("INSERT INTO Recommendations (user_id, movie_id) VALUES (%s, %s)", (user_id, movie_id))
+            db.commit()
+            return jsonify({"message": "Recommendation added successfully"}), 201
 
-        # Update movie recommendation count
-        update_query = "UPDATE Movies SET recommendation_count = recommendation_count + 1 WHERE movie_id = %s"
-        cursor.execute(update_query, (movie_id,))
+        except mysql.connector.Error as err:
+            db.rollback()
+            return jsonify({"message": "An error occurred", "error": str(err)}), 500
+        finally:
+            cursor.close()
 
-        db.commit()
-        return jsonify({"message": "Recommendation added successfully"}), 201
-    except mysql.connector.Error as err:
-        db.rollback()
-        return jsonify({"message": "An error occurred", "error": str(err)}), 500
-    finally:
+
+@app.route('/recommended_movies')
+def recommended_movies():
+    with get_db_connection() as db:
+        cursor = db.cursor()
+        query = "SELECT movie_id, title, recommendation_count FROM Movies ORDER BY recommendation_count DESC"
+        cursor.execute(query)
+        movies = [{"movie_id": row[0], "title": row[1], "recommendation_count": row[2]} for row in cursor.fetchall()]
         cursor.close()
-        db.close()
+    return jsonify(movies)
+
 
 # Index route
 @app.route('/')
 def index():
-    return "Hello, World!"
+    return render_template('index.html')
+
 
 if __name__ == '__main__':
     app.run(debug=True)
