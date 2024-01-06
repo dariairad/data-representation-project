@@ -62,9 +62,12 @@ function loadMovies(query, page) {
             data.forEach(movie => {
                 const movieElement = document.createElement('div');
                 movieElement.innerHTML = `
-                    <h3>${movie.title}</h3>
+                    <p></p>
+                    <h3>${movie.title} (${movie.year})</h3>
+                    <p>Directed by ${movie.description}</p>
                     <p>${movie.description}</p>
-                    <button onclick="addRecommendation(${movie.id})">Add Recommendation</button>
+                    <p>ID: ${movie.movie_id}</p>
+                    <button onclick="addRecommendation(${movie.movie_id})">Add Recommendation</button>
                 `;
                 resultsContainer.appendChild(movieElement);
             });
@@ -90,14 +93,13 @@ document.getElementById('load-more').addEventListener('click', function(e) {
     loadMovies(currentQuery, ++currentPage);
 });
 
+
 // Function to add a recommendation
-function addRecommendation(movieId, movieTitle, movieReleaseDate, movieOverview) {
-    console.log("Adding recommendation for movie ID:", movieId);
-    let jwtToken = getJwtToken();
-    console.log("JWT Token:", jwtToken); // Add this line to log the token
+function addRecommendation(movieId) {
+    let jwtToken = getJwtToken(); 
     if (!jwtToken) {
         alert("You are not logged in.");
-        return; // Stop the function if no token is present
+        return; 
     }
 
     fetch('/add_recommendation', {

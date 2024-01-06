@@ -35,16 +35,18 @@ def get_db_connection():
     finally:
         connection.close()
 
-# Function to search movies from TMDB API
 def search_movies(query, page=1):
     search_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={query}"
     response = requests.get(search_url)
 
     if response.status_code == 200:
         search_results = response.json()['results']
-        return [{'title': movie['title'],
-                 'year': movie['release_date'].split('-')[0] if movie['release_date'] else 'N/A',
-                 'description': movie['overview']} for movie in search_results]
+        return [{
+            'movie_id': movie['id'],
+            'title': movie['title'],
+            'year': movie['release_date'].split('-')[0] if movie['release_date'] else 'N/A',
+            'description': movie['overview'],
+        } for movie in search_results]
     else:
         return None
 
@@ -122,6 +124,8 @@ def register():
             # Insert new user
             cursor.execute("INSERT INTO Users (username, password_hash) VALUES (%s, %s)", (username, hashed_password))
             db.commit()
+            return jsonify({'message': 'Registration successful'}), 200
+
         except Exception as e:
             # Handle any exceptions that occur during database operations
             return jsonify({'message': 'Registration failed', 'error': str(e)}), 500
@@ -166,7 +170,7 @@ def search():
 def get_movie_details(movie_id):
     """Fetch movie details from TMDB API based on movie_id."""
     base_url = "https://api.themoviedb.org/3/movie/"
-    api_key = TMDB_API_KEY  # Ensure you have defined TMDB_API_KEY in your configuration
+    api_key = TMDB_API_KEY  
     url = f"{base_url}{movie_id}?api_key={api_key}"
 
     response = requests.get(url)
@@ -175,8 +179,7 @@ def get_movie_details(movie_id):
         return {
             'title': movie_data.get('title'),
             'release_date': movie_data.get('release_date'),
-            'overview': movie_data.get('overview')
-            # Add other fields as required
+            'description': movie_data.get('overview'),
         }
     else:
         # Handle errors or return None if the API call fails
@@ -192,14 +195,21 @@ def add_recommendation():
     with get_db_connection() as db:
         cursor = db.cursor()
         try:
-            # Check if the movie exists
-            cursor.execute("SELECT movie_id FROM Movies WHERE id = %s", (movie_id,))
-            movie = cursor.fetchone()
-            
-            # If movie doesn't exist, insert movie details (You need to modify this part based on how you get movie details)
-            if not movie:
+            # Check if the movie exists in the Movies table
+            cursor.execute("SELECT movie_id FROM Movies WHERE movie_id = %s", (movie_id,))
+            movie_exists = cursor.fetchone()
+
+            if not movie_exists:
+                # Fetch and insert movie details if the movie doesn't exist
                 movie_details = get_movie_details(movie_id)
-                cursor.execute("INSERT INTO Movies (id, title, ...) VALUES (%s, %s, ...)", (movie_id, movie_details.title, ...))
+                if movie_details:
+                    cursor.execute("INSERT INTO Movies (movie_id, title, release_date, overview, recommendation_count) VALUES (%s, %s, %s, %s, 1)",
+                                   (movie_id, movie_details['title'], movie_details['release_date'], movie_details['overview']))
+                else:
+                    return jsonify({"message": "Failed to fetch movie details"}), 400
+            else:
+                # Increment recommendation count if the movie already exists
+                cursor.execute("UPDATE Movies SET recommendation_count = recommendation_count + 1 WHERE movie_id = %s", (movie_id,))
 
             # Insert recommendation
             cursor.execute("INSERT INTO Recommendations (user_id, movie_id) VALUES (%s, %s)", (user_id, movie_id))
@@ -211,6 +221,8 @@ def add_recommendation():
             return jsonify({"message": "An error occurred", "error": str(err)}), 500
         finally:
             cursor.close()
+
+
 
 
 @app.route('/recommended_movies')
